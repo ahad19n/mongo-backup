@@ -1,8 +1,7 @@
-// index.js
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs/promises');
 const nodemailer = require('nodemailer');
+const { spawn } = require('child_process');
 
 const { MONGODB_URI, SMTP_CONFIG, EMAIL_TO } = process.env;
 
@@ -11,7 +10,7 @@ if (!MONGODB_URI) {
   process.exit(1);
 }
 if (!SMTP_CONFIG) {
-  console.error('[ERROR] SMTP_CONFIG is required (example: smtp://mailhog:1025|routed@routed.dev)');
+  console.error('[ERROR] SMTP_CONFIG is required (example: smtp://user:pass@host:port|from@domain.com)');
   process.exit(1);
 }
 if (!EMAIL_TO) {
@@ -71,8 +70,8 @@ async function main() {
   await runCommand('zip', ['-r', zipPath, path.basename(outdir)], { cwd: '/backup' });
   console.log('[INFO] Zip created at:', zipPath);
 
-  // prepare transporter
   const [smtpUrl, from] = SMTP_CONFIG.split('|');
+
   if (!smtpUrl || !from) {
     console.error('[ERROR] SMTP_CONFIG malformed. Must be: <smtp-url>|<from-address>');
     process.exit(1);
@@ -83,30 +82,21 @@ async function main() {
   });
 
   const to = EMAIL_TO.split(',').map(s => s.trim()).filter(Boolean).join(', ');
-  const mailOptions = {
-    from,
-    to,
-    subject: `MongoDB backup - ${ts}`,
-    text: `Attached: MongoDB backup (${db || 'all databases'}) created at ${ts}.`,
-    attachments: [
-      {
-        filename: zipName,
-        path: zipPath
-      }
-    ]
-  };
 
-  console.log(`[INFO] Sending email to: ${to}`);
   try {
-    const info = await transporter.sendMail(mailOptions);
+    console.log('[INFO] Sending email to:', to);
+    const info = await transporter.sendMail({
+      to, from,
+      subject: `[mongo-backup] ${db || 'All databases'} - ${ts}`,
+      attachments: [{ filename: zipName, path: zipPath }]
+    });
     console.log('[INFO] Email sent:', info && (info.messageId || info.response) || info);
-  } catch (err) {
-    console.error('[ERROR] Failed to send email:', err);
-    process.exit(2);
   }
 
-  // optional: leave the zip file in /backup; you could delete older zips here if desired
-  console.log('[INFO] Backup + email finished successfully');
+  catch (err) {
+    console.error('[ERROR] Failed to send email:', err);
+    process.exit(1);
+  }
 }
 
 main().catch(err => {
